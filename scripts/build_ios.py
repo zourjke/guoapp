@@ -12,6 +12,7 @@ from pathlib import Path
 from app_build import BuildVariant, add_variant_argument
 
 root = Path(__file__).resolve().parents[1]
+default_export_options = root / 'ios' / 'ExportOptions.plist'
 
 
 def run(arguments, **kwargs):
@@ -67,11 +68,44 @@ def build_core(simulator=False, variant=BuildVariant()):
     run(arguments + ['-output', str(framework)])
 
 
+def stage_payload(application, staging):
+    """把 .app 放进 staging/Payload/ 下，返回 Payload 目录。
+
+    IPA 的目录结构必须是 Payload/<App>.app，否则侧载工具无法识别。
+    """
+    if staging.exists():
+        shutil.rmtree(staging)
+    payload = staging / 'Payload'
+    payload.mkdir(parents=True)
+    shutil.copytree(application, payload / application.name, symlinks=True)
+    return payload
+
+
+def package_unsigned_ipa(application, destination, archiver=None):
+    """把未签名的 .app 打包成未签名 .ipa。
+
+    用 ditto 而非 zip：ditto 会保留 .app 内 framework 的符号链接，
+    丢掉链接会导致侧载重签名后应用无法启动。
+    """
+    archiver = archiver or run
+    staging = destination.parent / (destination.stem + '.payload')
+    try:
+        payload = stage_payload(application, staging)
+        archiver(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', str(payload), str(destination)])
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
+    if not destination.is_file() or destination.stat().st_size == 0:
+        raise SystemExit('未生成未签名 IPA：' + str(destination))
+    return destination
+
+
 def main():
     parser = argparse.ArgumentParser(description='构建红果鉴 / 真果鉴 iOS 核心和应用')
     parser.add_argument('--core-only', action='store_true')
     parser.add_argument('--simulator', action='store_true', help='额外生成模拟器核心；不启动模拟器')
-    parser.add_argument('--export-options', type=Path, help='使用自己的 Xcode 签名配置导出 IPA')
+    parser.add_argument('--export-options', type=Path,
+                        help='使用自己的 Xcode 签名配置导出 IPA；省略时自动使用 ios/ExportOptions.plist')
     add_variant_argument(parser)
     options = parser.parse_args()
     variant = BuildVariant(options.all_sources)
@@ -87,8 +121,12 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     version = re.search(r'^version:\s*(\S+)', (root / 'pubspec.yaml').read_text(), re.MULTILINE).group(1)
     artifacts = []
-    if options.export_options:
-        config = options.export_options.expanduser().resolve()
+    export_options = options.export_options
+    if export_options is None and default_export_options.is_file():
+        export_options = default_export_options
+        print('检测到 iOS 签名配置，导出已签名 IPA。')
+    if export_options:
+        config = export_options.expanduser().resolve()
         if not config.is_file():
             raise SystemExit('ExportOptions.plist 不存在。')
         run([flutter, 'build', 'ipa', '--release', '--no-pub', '--export-options-plist', str(config), *variant.flutter_arguments])
@@ -99,13 +137,17 @@ def main():
     else:
         run([flutter, 'build', 'ios', '--release', '--no-codesign', '--no-pub', *variant.flutter_arguments])
         application = root / 'build' / 'ios' / 'iphoneos' / 'Runner.app'
+        if not application.is_dir():
+            raise SystemExit('未生成 iOS 应用：' + str(application))
         symbols = subprocess.check_output(['xcrun', 'nm', '-gU', str(application / 'Runner')], text=True)
         for symbol in ['_DuanjuRequest', '_DuanjuFree']:
             if symbol not in symbols:
                 raise SystemExit('iOS 包缺少 FFI 入口：' + symbol)
-        destination = output / f'{variant.slug}-{version}-ios-unsigned-app.zip'
-        run(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', str(application), str(destination)])
-        artifacts.append(destination)
+        archive = output / f'{variant.slug}-{version}-ios-unsigned-app.zip'
+        run(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', str(application), str(archive)])
+        artifacts.append(archive)
+        ipa = output / f'{variant.slug}-{version}-ios-unsigned.ipa'
+        artifacts.append(package_unsigned_ipa(application, ipa))
     if not artifacts:
         raise SystemExit('未生成 iOS 安装包。')
     checksums = []
