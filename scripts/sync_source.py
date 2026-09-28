@@ -28,7 +28,7 @@ EXCLUDED_DIRECTORIES = {
     'flutter-sdk', 'ndk', 'toolchains',
 }
 EXCLUDED_NAMES = {
-    '.DS_Store', 'Thumbs.db', 'local.properties', 'key.properties',
+    '.DS_Store', 'Thumbs.db', 'local.properties', 'key.properties', 'ExportOptions.plist',
     '.packages', 'GeneratedPluginRegistrant.java', 'Generated.xcconfig',
     'flutter_export_environment.sh', 'GeneratedPluginRegistrant.h', 'GeneratedPluginRegistrant.m',
 }
@@ -37,6 +37,7 @@ EXCLUDED_PATTERNS = (
     '*.jar', '*.aar', '*.dll', '*.so', '*.dylib', '*.a', '*.o', '*.obj',
     '*.apk', '*.aab', '*.ipa', '*.exe', '*.zip', '*.7z', '*.tar', '*.gz',
     '*.tgz', '*.jks', '*.keystore', '*.p12', '*.pfx', '*.pem', '*.key',
+    '*.mobileprovision',
     '*.suo', '*.user', '*.userosscache', '*.sln.docstates', '*.xcframework',
     '*.framework', '*.xcuserstate', '._*',
 )
@@ -53,6 +54,7 @@ REQUIRED_FILES = {
     'android/app/build.gradle.kts', 'android/gradle/wrapper/gradle-wrapper.properties',
     'windows/CMakeLists.txt', 'windows/flutter/CMakeLists.txt',
     '.github/workflows/build.yml', 'scripts/build_native.py',
+    'scripts/build_ios.py', 'scripts/configure_ios_signing.py',
 }
 
 
